@@ -64,6 +64,7 @@ public class RequestHandler implements Route {
                                 .replace("%libraryName%", updateRequest.getName())
                                 .replace("%libraryVersion%", updateRequest.getVersion());
                         channel.sendMessage(message);
+                        log.info("Sent a notification to channel " + destination + " about library " + updateRequest.getName() + " version " + updateRequest.getVersion());
                     } else {
                         log.error("The channel (" + destination + ") isn't a server text channel!");
                         storage.removeSubscriptions(destination).thenRunAsync(() -> {
