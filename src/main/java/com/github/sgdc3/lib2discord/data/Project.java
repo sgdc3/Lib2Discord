@@ -1,4 +1,4 @@
-package com.github.sgdc3.lib2discord.data.request;
+package com.github.sgdc3.lib2discord.data;
 
 import lombok.Data;
 

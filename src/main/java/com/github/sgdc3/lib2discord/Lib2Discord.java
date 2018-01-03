@@ -1,16 +1,17 @@
 package com.github.sgdc3.lib2discord;
 
-import com.github.sgdc3.lib2discord.data.request.UpdateRequest;
-import com.google.common.util.concurrent.FutureCallback;
+import ch.jalu.injector.Injector;
+import ch.jalu.injector.InjectorBuilder;
+import com.github.sgdc3.lib2discord.commands.AddSubscriptionCommand;
+import com.github.sgdc3.lib2discord.commands.GetSubscriptionsCommand;
+import com.github.sgdc3.lib2discord.commands.RemoveSubscriptionCommand;
+import com.github.sgdc3.lib2discord.routes.RequestHandler;
+import com.github.sgdc3.lib2discord.storage.Storage;
 import com.google.gson.Gson;
-import com.google.gson.JsonSyntaxException;
-import de.btobastian.javacord.DiscordAPI;
-import de.btobastian.javacord.Javacord;
-import de.btobastian.javacord.entities.Channel;
-import de.btobastian.javacord.entities.Server;
-import de.btobastian.javacord.entities.User;
-import de.btobastian.sdcf4j.Command;
+import de.btobastian.javacord.DiscordApi;
+import de.btobastian.javacord.DiscordApiBuilder;
 import de.btobastian.sdcf4j.CommandExecutor;
+import de.btobastian.sdcf4j.CommandHandler;
 import de.btobastian.sdcf4j.handler.JavacordHandler;
 import lombok.extern.slf4j.Slf4j;
 
@@ -23,14 +24,22 @@ import java.util.Properties;
 
 import static spark.Spark.*;
 
-@Slf4j(topic = "Lib2Discord")
+@Slf4j
 public final class Lib2Discord implements CommandExecutor {
 
-    private final static Gson GSON = new Gson();
-    private DiscordAPI discordAPI;
+    private Injector injector;
+    private Gson gson;
+    private Properties config;
+    private Storage storage;
+    private DiscordApi discordApi;
+    private CommandHandler commandHandler;
 
     public Lib2Discord() {
         log.info("Loading Lib2Discord...");
+        injector = new InjectorBuilder().addDefaultHandlers("").create();
+
+        gson = new Gson();
+        injector.register(Gson.class, gson);
 
         // Load the configuration file
         File propertiesFile = new File("config.properties");
@@ -45,70 +54,58 @@ public final class Lib2Discord implements CommandExecutor {
             }
         }
         log.info("Loading the configuration file...");
-        Properties properties = new Properties();
+        config = new Properties();
         try {
-            properties.load(new FileReader(propertiesFile));
+            config.load(new FileReader(propertiesFile));
         } catch (IOException e) {
             log.error("An error occurred while loading the configuration file!", e);
             return;
         }
+        injector.register(Properties.class, config);
         log.info("Configuration loaded successfully!");
 
-        // Connect the bot instance
-        Javacord.getApi(properties.getProperty("botToken"), true).connect(new FutureCallback<DiscordAPI>() {
-            @Override
-            public void onSuccess(DiscordAPI result) {
-                discordAPI = result;
-                new JavacordHandler(discordAPI).registerCommand(Lib2Discord.this);
-                log.info("Successfully connected the DiscordBot!");
-            }
+        // Initialize storage
+        storage = injector.getSingleton(Storage.class);
 
-            @Override
-            public void onFailure(Throwable t) {
-                log.error("An error occurred while connecting the DiscordBot!", t);
-                System.exit(-1);
-            }
+        // Connect the bot instance
+        new DiscordApiBuilder().setToken(config.getProperty("bot.token")).login().thenAccept(result -> {
+            discordApi = result;
+            log.info("Successfully connected the DiscordBot!");
+        }).exceptionally(ex -> {
+            log.error("An error occurred while connecting the DiscordBot!", ex);
+            System.exit(1);
+            return null;
         });
+        injector.register(DiscordApi.class, discordApi);
+
+        // Register commands
+        commandHandler = new JavacordHandler(discordApi);
+        commandHandler.registerCommand(injector.getSingleton(AddSubscriptionCommand.class));
+        commandHandler.registerCommand(injector.getSingleton(RemoveSubscriptionCommand.class));
+        commandHandler.registerCommand(injector.getSingleton(GetSubscriptionsCommand.class));
 
         // Set the http listener
         log.info("Initializing the http server...");
-        ipAddress(properties.getProperty("bindAddress"));
-        port(Integer.parseInt(properties.getProperty("port")));
-        post("/" + properties.getProperty("path"), (request, response) -> {
-            log.info("Received a new HTTP POST requst from " + request.ip() + "!");
+        ipAddress(config.getProperty("http.bindAddress"));
+        port(Integer.parseInt(config.getProperty("http.port")));
+        post("/", injector.getSingleton(RequestHandler.class));
 
-            UpdateRequest updateRequest;
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             try {
-                updateRequest = GSON.fromJson(request.body(), UpdateRequest.class);
-            } catch (JsonSyntaxException e) {
-                log.warn("Illegal request!", e);
-                return "err";
+                Thread.sleep(200);
+                log.info("Shouting down...");
+                stop();
+                if(discordApi != null) {
+                    discordApi.disconnect();
+                }
+                if (storage != null) {
+                    storage.close();
+                }
+                log.info("Bye bye!");
+            } catch (InterruptedException e) {
+                log.error("An error occurred while shouting down!", e);
             }
-
-            if (!updateRequest.getEvent().equals("new_update")) {
-                return "ok";
-            }
-
-            Channel channel = discordAPI.getChannelById(properties.getProperty("channelId"));
-            if (channel == null) {
-                log.error("No channel found with the given ID!");
-                return "err";
-            }
-
-            String message = properties.getProperty("message")
-                    .replace("<nl>", "\n")
-                    .replace("%projectName%", updateRequest.getProject().getName())
-                    .replace("%libraryName%", updateRequest.getName())
-                    .replace("%libraryVersion%", updateRequest.getVersion());
-            channel.sendMessage(message);
-
-            return "ok";
-        });
-    }
-
-    @Command(aliases = {"!addrepository"}, description = "Add a repository to the repository whitelist.", privateMessages = false)
-    public void onSetRepositoriesCommand(Server server, Channel channel, User user, String) {
-
+        }));
     }
 
     public static void main(String[] args) {
