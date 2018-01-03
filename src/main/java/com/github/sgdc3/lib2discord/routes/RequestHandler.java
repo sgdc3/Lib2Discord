@@ -50,7 +50,7 @@ public class RequestHandler implements Route {
             return "ok";
         }
 
-        log.warn(updateRequest.getRepository());
+        log.info("Received an update for repository " + updateRequest.getRepository());
         storage.getSubscribers(updateRequest.getRepository()).thenAcceptAsync(destinations -> {
             destinations.forEach(destination -> {
                 Optional<Channel> optionalChannel = discordApi.getChannelById(destination);

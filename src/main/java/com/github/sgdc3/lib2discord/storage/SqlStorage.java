@@ -43,8 +43,7 @@ public class SqlStorage implements Storage {
                 "CREATE TABLE IF NOT EXISTS subscriptions (" +
                         " subscription_id INT PRIMARY KEY AUTO_INCREMENT," +
                         " channel_id BIGINT UNSIGNED NOT NULL," +
-                        " repository VARCHAR(255) NOT NULL," +
-                        " CONSTRAINT uc_subscription UNIQUE (channel_id, repository)" +
+                        " repository TINYTEXT NOT NULL" +
                         ");"
         ).executeUpdate();
     }
