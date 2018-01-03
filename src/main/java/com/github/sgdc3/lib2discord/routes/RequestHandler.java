@@ -5,6 +5,8 @@ import com.github.sgdc3.lib2discord.storage.Storage;
 import com.google.gson.Gson;
 import com.google.gson.JsonSyntaxException;
 import de.btobastian.javacord.DiscordApi;
+import de.btobastian.javacord.entities.channels.Channel;
+import de.btobastian.javacord.entities.channels.ServerTextChannel;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -13,6 +15,7 @@ import spark.Response;
 import spark.Route;
 
 import javax.inject.Inject;
+import java.util.Optional;
 import java.util.Properties;
 
 @Slf4j
@@ -35,7 +38,7 @@ public class RequestHandler implements Route {
         UpdateRequest updateRequest;
         try {
             updateRequest = gson.fromJson(request.body(), UpdateRequest.class);
-            if(updateRequest == null) {
+            if (updateRequest == null) {
                 throw new JsonSyntaxException("Empty data!");
             }
         } catch (JsonSyntaxException e) {
@@ -50,24 +53,27 @@ public class RequestHandler implements Route {
         log.warn(updateRequest.getRepository());
         storage.getSubscribers(updateRequest.getRepository()).thenAcceptAsync(destinations -> {
             destinations.forEach(destination -> {
-                discordApi.getChannelById(destination).ifPresentOrElse(channel -> {
-                    channel.asServerTextChannel().ifPresentOrElse(textChannel -> {
+                Optional<Channel> optionalChannel = discordApi.getChannelById(destination);
+                if (optionalChannel.isPresent()) {
+                    Optional<ServerTextChannel> optionalTextChannel = optionalChannel.get().asServerTextChannel();
+                    if (optionalTextChannel.isPresent()) {
+                        ServerTextChannel channel = optionalTextChannel.get();
                         String message = config.getProperty("message")
                                 .replace("<nl>", "\n")
                                 .replace("%projectName%", updateRequest.getProject().getName())
                                 .replace("%libraryName%", updateRequest.getName())
                                 .replace("%libraryVersion%", updateRequest.getVersion());
-                        textChannel.sendMessage(message);
-                    }, () -> {
+                        channel.sendMessage(message);
+                    } else {
                         log.error("The channel (" + destination + ") isn't a server text channel!");
                         storage.removeSubscriptions(destination).thenRunAsync(() -> {
                             log.info("Removed invalid channel from the storage! ID:" + destination);
                         });
-                    });
-                }, () -> {
+                    }
+                } else {
                     log.error("No channel found with the given ID (" + destination + ")!");
                     storage.removeSubscriptions(destination);
-                });
+                }
             });
         });
 

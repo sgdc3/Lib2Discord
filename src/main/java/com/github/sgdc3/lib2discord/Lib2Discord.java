@@ -104,7 +104,7 @@ public final class Lib2Discord implements CommandExecutor {
                 Thread.sleep(200);
                 log.info("Shouting down...");
                 stop();
-                if(discordApi != null) {
+                if (discordApi != null) {
                     discordApi.disconnect();
                 }
                 if (storage != null) {
