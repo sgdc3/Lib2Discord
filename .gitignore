@@ -1,3 +1,5 @@
+exec/*
+
 ### Java files ###
 *.class
 MANIFEST.MF

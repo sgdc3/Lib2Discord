@@ -19,9 +19,12 @@ public class SqlStorage implements Storage {
     private Sql2o sql;
 
     @Inject
-    SqlStorage(Properties config) {
+    SqlStorage(Properties config) throws ClassNotFoundException {
         log.info("Initializing the SqlStorage...");
         HikariConfig hikariConfig = new HikariConfig();
+        String driver = config.getProperty("sql.driver");
+        Class.forName(driver);
+        hikariConfig.setDriverClassName(driver);
         hikariConfig.setJdbcUrl(config.getProperty("sql.jdbcUrl"));
         hikariConfig.setUsername(config.getProperty("sql.user"));
         hikariConfig.setPassword(config.getProperty("sql.password"));
@@ -37,11 +40,11 @@ public class SqlStorage implements Storage {
 
     private void initSchema() {
         sql.open().createQuery(
-                "CREATE TABLE subscriptions (" +
-                        "   subscription_id PRIMARY KEY AUTO_INCREMENT," +
-                        "   channel_id UNSIGNED LONG NOT NULL," +
-                        "   repository TINYTEXT NOT NULL" +
-                        "   CONSTRAINT uc_subscription UNIQUE (channel_id, repository)" +
+                "CREATE TABLE IF NOT EXISTS subscriptions (" +
+                        " subscription_id INT PRIMARY KEY AUTO_INCREMENT," +
+                        " channel_id BIGINT UNSIGNED NOT NULL," +
+                        " repository VARCHAR(255) NOT NULL," +
+                        " CONSTRAINT uc_subscription UNIQUE (channel_id, repository)" +
                         ");"
         ).executeUpdate();
     }
@@ -72,11 +75,7 @@ public class SqlStorage implements Storage {
     public CompletableFuture<Void> addSubscribtion(@NonNull Long channelId, @NonNull String repository) {
         return CompletableFuture.runAsync(() -> {
             try (Connection connection = sql.open()) {
-                connection.createQuery(
-                        "INSERT INTO subscriptions VALUES (" +
-                                "   :repository," +
-                                "   :channel_id" +
-                                ");")
+                connection.createQuery("INSERT INTO subscriptions(repository, channel_id) VALUES (:repository, :channel_id);")
                         .addParameter("repository", repository)
                         .addParameter("channel_id", channelId)
                         .executeUpdate();
@@ -89,10 +88,7 @@ public class SqlStorage implements Storage {
         return CompletableFuture.runAsync(() -> {
             try (Connection connection = sql.open()) {
                 connection.createQuery(
-                        "DELETE FROM subscriptions WHERE" +
-                                "   repository=:repository" +
-                                "   AND channel_id=:channel_id" +
-                                ";")
+                        "DELETE FROM subscriptions WHERE repository=:repository AND channel_id=:channel_id;")
                         .addParameter("repository", repository)
                         .addParameter("channel_id", channelId)
                         .executeUpdate();
@@ -105,9 +101,7 @@ public class SqlStorage implements Storage {
         return CompletableFuture.runAsync(() -> {
             try (Connection connection = sql.open()) {
                 connection.createQuery(
-                        "DELETE FROM subscriptions WHERE" +
-                                "   channel_id=:channel_id" +
-                                ";")
+                        "DELETE FROM subscriptions WHERE channel_id=:channel_id;")
                         .addParameter("channel_id", channelId)
                         .executeUpdate();
             }
@@ -119,8 +113,7 @@ public class SqlStorage implements Storage {
         return CompletableFuture.supplyAsync(() -> {
             try (Connection connection = sql.open()) {
                 return connection.createQuery(
-                        "SELECT channel_id FROM subscriptionsWHERE repository=:repository" +
-                                "   AND channel_id=:channel_id")
+                        "SELECT channel_id FROM subscriptions WHERE repository=:repository AND channel_id=:channel_id")
                         .addParameter("repository", repository)
                         .addParameter("channel_id", channelId)
                         .executeAndFetch(Integer.class)

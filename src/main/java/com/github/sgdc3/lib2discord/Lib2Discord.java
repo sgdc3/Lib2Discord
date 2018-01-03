@@ -6,6 +6,7 @@ import com.github.sgdc3.lib2discord.commands.AddSubscriptionCommand;
 import com.github.sgdc3.lib2discord.commands.GetSubscriptionsCommand;
 import com.github.sgdc3.lib2discord.commands.RemoveSubscriptionCommand;
 import com.github.sgdc3.lib2discord.routes.RequestHandler;
+import com.github.sgdc3.lib2discord.storage.SqlStorage;
 import com.github.sgdc3.lib2discord.storage.Storage;
 import com.google.gson.Gson;
 import de.btobastian.javacord.DiscordApi;
@@ -21,6 +22,9 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 import java.util.Properties;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import static spark.Spark.*;
 
@@ -42,6 +46,7 @@ public final class Lib2Discord implements CommandExecutor {
         injector.register(Gson.class, gson);
 
         // Load the configuration file
+
         File propertiesFile = new File("config.properties");
         if (!propertiesFile.exists()) {
             log.info("Copying the default config file...");
@@ -65,30 +70,34 @@ public final class Lib2Discord implements CommandExecutor {
         log.info("Configuration loaded successfully!");
 
         // Initialize storage
-        storage = injector.getSingleton(Storage.class);
+        storage = injector.newInstance(SqlStorage.class);
+        injector.register(Storage.class, storage);
 
         // Connect the bot instance
-        new DiscordApiBuilder().setToken(config.getProperty("bot.token")).login().thenAccept(result -> {
-            discordApi = result;
-            log.info("Successfully connected the DiscordBot!");
-        }).exceptionally(ex -> {
-            log.error("An error occurred while connecting the DiscordBot!", ex);
+        log.info("Connecting to the DiscordAPI...");
+        try {
+            discordApi = new DiscordApiBuilder().setToken(config.getProperty("bot.token")).login().get(10, TimeUnit.SECONDS);
+        } catch (InterruptedException | ExecutionException | TimeoutException e) {
+            e.printStackTrace();
+            log.error("An error occurred while connecting the DiscordBot!", e);
             System.exit(1);
-            return null;
-        });
+        }
         injector.register(DiscordApi.class, discordApi);
+        log.info("Connected to the DiscordApi successfully!");
 
         // Register commands
+        log.info("Registering commands...");
         commandHandler = new JavacordHandler(discordApi);
         commandHandler.registerCommand(injector.getSingleton(AddSubscriptionCommand.class));
         commandHandler.registerCommand(injector.getSingleton(RemoveSubscriptionCommand.class));
         commandHandler.registerCommand(injector.getSingleton(GetSubscriptionsCommand.class));
+        log.info("Commands registered successfully!");
 
         // Set the http listener
         log.info("Initializing the http server...");
         ipAddress(config.getProperty("http.bindAddress"));
         port(Integer.parseInt(config.getProperty("http.port")));
-        post("/", injector.getSingleton(RequestHandler.class));
+        post("/webhook", injector.getSingleton(RequestHandler.class));
 
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             try {

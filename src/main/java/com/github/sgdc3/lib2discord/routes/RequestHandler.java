@@ -35,15 +35,19 @@ public class RequestHandler implements Route {
         UpdateRequest updateRequest;
         try {
             updateRequest = gson.fromJson(request.body(), UpdateRequest.class);
+            if(updateRequest == null) {
+                throw new JsonSyntaxException("Empty data!");
+            }
         } catch (JsonSyntaxException e) {
             log.warn("Illegal request!", e);
             return "err";
         }
 
-        if (!updateRequest.getEvent().equals("new_update")) {
+        if (!updateRequest.getEvent().equals("new_version")) {
             return "ok";
         }
 
+        log.warn(updateRequest.getRepository());
         storage.getSubscribers(updateRequest.getRepository()).thenAcceptAsync(destinations -> {
             destinations.forEach(destination -> {
                 discordApi.getChannelById(destination).ifPresentOrElse(channel -> {
